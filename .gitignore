@@ -23,9 +23,12 @@ env/
 ENV/
 
 # ── 项目产出（本地生成，不入库） ──
+input/*.xlsx
+input/*.xls
 output/
 sop_templates/*.md
 sop_templates/*.json
+*.log
 
 # ── 编辑器 & 系统 ──
 .vscode/

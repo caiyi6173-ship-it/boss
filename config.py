@@ -5,7 +5,23 @@ API Key 从 .env 文件读取，不会泄露到代码中。
 """
 
 import os
+import sys
 from pathlib import Path
+
+
+# ────────────────────────── 运行根目录 ──────────────────────────
+# 源码模式：项目目录即根目录
+# PyInstaller 打包模式：sys.frozen 为 True，此时 __file__ 指向临时解压目录，
+# 用户可见的目录是 exe 所在目录（sys.executable 的父目录）。
+# 所有用户数据（.env / input / output / sop_templates）必须落在 exe 同级，
+# 否则用户看不到生成物，也无法编辑配置。
+
+if getattr(sys, "frozen", False):
+    # 打包后运行：以 exe 所在目录为根
+    PROJECT_ROOT = Path(sys.executable).parent
+else:
+    # 源码运行：以本文件所在目录为根
+    PROJECT_ROOT = Path(__file__).parent
 
 
 # ────────────────────────── .env 文件加载 ──────────────────────────
@@ -26,8 +42,21 @@ def _load_env(env_path: Path):
                 os.environ[key] = value
 
 
-# 项目根目录
-PROJECT_ROOT = Path(__file__).parent
+def reload_env():
+    """重新从 PROJECT_ROOT/.env 加载并刷新 OPENAI_* 三个变量。
+    GUI 保存 .env 后调用，避免用户重启 exe。"""
+    global OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
+    env_path = PROJECT_ROOT / ".env"
+    if not env_path.exists():
+        return
+    # 允许覆盖：先清掉旧值，再加载
+    for k in ("OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL"):
+        os.environ.pop(k, None)
+    _load_env(env_path)
+    OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+    OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "qwen-plus")
+
 
 # 自动加载 .env
 _load_env(PROJECT_ROOT / ".env")
@@ -35,10 +64,15 @@ _load_env(PROJECT_ROOT / ".env")
 
 # ────────────────────────── 路径配置 ──────────────────────────
 
-# 输入文件：默认相对路径 ./input/Workbook.xlsx，可通过 BOSS_WORKBOOK_PATH 覆盖
+# 输入文件：默认放在 exe/源码同级的 input/Workbook.xlsx，可通过 BOSS_WORKBOOK_PATH 覆盖
+# 注意：这里必须用 PROJECT_ROOT，不能用 Path(__file__).parent——
+# 打包后 __file__ 指向解压临时目录，用户在那里看不到文件。
+INPUT_DIR = PROJECT_ROOT / "input"
+INPUT_DIR.mkdir(exist_ok=True)
+
 WORKBOOK_PATH = Path(os.environ.get(
     "BOSS_WORKBOOK_PATH",
-    str(Path(__file__).parent / "input" / "Workbook.xlsx")
+    str(INPUT_DIR / "Workbook.xlsx")
 ))
 
 # 输出目录
