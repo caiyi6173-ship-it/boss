@@ -12,12 +12,14 @@ Boss Task Agent - GUI 入口
 
 import os
 import queue
+import re
 import sys
 import threading
 import traceback
 import webbrowser
 import tkinter as tk
 from datetime import datetime
+from difflib import SequenceMatcher
 from pathlib import Path
 from tkinter import Tk, StringVar, END, DISABLED, NORMAL, filedialog, messagebox
 from tkinter import ttk, scrolledtext
@@ -85,6 +87,7 @@ class BossTaskGUI:
         self.var_api_state = StringVar(value="")
         self.var_file_state = StringVar(value="")
         self.var_run_state = StringVar(value="就绪")
+        self.var_chat = StringVar(value="")
 
         self._configure_styles()
         self._build_ui()
@@ -188,14 +191,24 @@ class BossTaskGUI:
         ttk.Entry(file_body, textvariable=self.var_workbook, style="Field.TEntry").grid(row=0, column=0, sticky="ew", pady=4)
         self._plain_button(file_body, "浏览", self.pick_workbook).grid(row=0, column=1, padx=(10, 0), pady=4)
 
-        action_body = self._card(content, "任务处理", "先解析语音，再按需生成 SOP、Excel、看板和复盘")
+        action_body = self._card(content, "任务处理", "先解析语音，再按需生成 SOP、Excel、看板和复盘；也可用对话更新任务")
         action_body.columnconfigure(0, weight=1)
         primary = self._action_button(action_body, "🚀 一键全流程", self.run_all, primary=True)
-        primary.grid(row=0, column=0, sticky="ew", pady=(2, 12))
+        primary.grid(row=0, column=0, sticky="ew", pady=(2, 10))
         self.action_buttons.append(primary)
 
+        chat_row = tk.Frame(action_body, bg=CARD_BG)
+        chat_row.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        chat_row.columnconfigure(0, weight=1)
+        chat_entry = ttk.Entry(chat_row, textvariable=self.var_chat, style="Field.TEntry")
+        chat_entry.grid(row=0, column=0, sticky="ew")
+        chat_entry.bind("<Return>", lambda _event: self.run_chat_command())
+        chat_btn = self._action_button(chat_row, "发送执行", self.run_chat_command)
+        chat_btn.grid(row=0, column=1, sticky="ew", padx=(10, 0))
+        self.action_buttons.append(chat_btn)
+
         quick = tk.Frame(action_body, bg=CARD_BG)
-        quick.grid(row=1, column=0, sticky="ew")
+        quick.grid(row=2, column=0, sticky="ew")
         for c in range(3):
             quick.columnconfigure(c, weight=1, uniform="action")
         actions = [
@@ -438,6 +451,86 @@ class BossTaskGUI:
             return None
         return tracker, instruction
 
+    def _parse_chat_intent(self, command: str):
+        """解析自然语言里的状态/进度意图。返回 (status, progress)。"""
+        status = None
+        progress = None
+
+        percent_match = re.search(r"(\d{1,3})\s*%|百分之\s*(\d{1,3})", command)
+        if percent_match:
+            raw = percent_match.group(1) or percent_match.group(2)
+            progress = max(0, min(100, int(raw)))
+
+        if any(k in command for k in ("完成", "做完", "搞定", "结束", "交付了", "已交付")):
+            status = "已完成"
+            progress = 100 if progress is None else progress
+        elif any(k in command for k in ("开始", "进行中", "在做", "处理中", "推进中", "已启动")):
+            status = "进行中"
+            progress = 50 if progress is None else progress
+        elif any(k in command for k in ("延期", "延后", "推迟", "来不及")):
+            status = "已延期"
+        elif any(k in command for k in ("阻塞", "卡住", "卡了", "被卡", "无法推进")):
+            status = "被阻塞"
+        elif any(k in command for k in ("待开始", "未开始", "重置")):
+            status = "待开始"
+            progress = 0 if progress is None else progress
+
+        if status is None and progress is not None:
+            status = "已完成" if progress >= 100 else "进行中"
+
+        return status, progress
+
+    def _clean_task_query(self, command: str) -> str:
+        query = re.sub(r"T\d{1,4}", " ", command, flags=re.IGNORECASE)
+        query = re.sub(r"\d{1,3}\s*%|百分之\s*\d{1,3}", " ", query)
+        for word in (
+            "任务", "事项", "工作", "项目", "帮我", "请", "把", "将", "一下", "这个", "那个",
+            "已经", "已", "了", "啦", "完成", "做完", "搞定", "结束", "交付", "开始",
+            "进行中", "在做", "处理中", "推进中", "启动", "延期", "延后", "推迟",
+            "阻塞", "卡住", "卡了", "无法推进", "待开始", "未开始", "重置", "进度"
+        ):
+            query = query.replace(word, " ")
+        query = re.sub(r"[，。！？、,.!?:：;；()\[\]【】\"'“”‘’]", " ", query)
+        return re.sub(r"\s+", " ", query).strip().lower()
+
+    def _task_search_text(self, task) -> str:
+        deliverables = " ".join(d.name + " " + d.description for d in task.deliverables)
+        return f"{task.id} {task.title} {task.description} {task.category.value} {task.notes} {deliverables}".lower()
+
+    def _match_task_from_command(self, command: str, instruction):
+        id_match = re.search(r"\b(T\d{1,4})\b", command, flags=re.IGNORECASE)
+        if id_match:
+            task_id = id_match.group(1).upper()
+            for task in instruction.tasks:
+                if task.id.upper() == task_id:
+                    return task, []
+            return None, []
+
+        query = self._clean_task_query(command)
+        if not query:
+            return None, []
+
+        scored = []
+        for task in instruction.tasks:
+            title = task.title.lower()
+            text = self._task_search_text(task)
+            score = SequenceMatcher(None, query, title).ratio() * 0.55
+            if query in text:
+                score += 0.55
+            if query in title:
+                score += 0.25
+            if any(ch in text for ch in query if not ch.isspace()):
+                common = sum(1 for ch in set(query) if ch in text and not ch.isspace())
+                score += min(0.25, common / max(len(set(query)), 1) * 0.25)
+            scored.append((score, task))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+        if not scored or scored[0][0] < 0.28:
+            return None, [task for _, task in scored[:3]]
+        if len(scored) > 1 and scored[0][0] - scored[1][0] < 0.06:
+            return None, [task for _, task in scored[:3]]
+        return scored[0][1], []
+
     # ─────────── 具体动作 ───────────
 
     def save_env(self):
@@ -573,6 +666,68 @@ class BossTaskGUI:
                   f"行动项 {len(report.action_items)} 条")
 
         self._run_bg("生成复盘", task)
+
+    def run_chat_command(self):
+        command = self.var_chat.get().strip()
+        if not command:
+            messagebox.showinfo("请输入指令", "例如：小红书任务完成 / T003 进度 60% / 方案任务延期")
+            return
+        loaded = self._load_instruction_or_warn()
+        if not loaded:
+            return
+
+        self.var_chat.set("")
+
+        def task():
+            print("=" * 60)
+            print("💬 对话执行")
+            print("=" * 60)
+            print(f"你说：{command}")
+
+            tracker = ProgressTracker()
+            instruction = tracker.load_tasks()
+            if not instruction:
+                print("❌ 尚未找到结构化任务，请先解析语音。")
+                return
+
+            status, progress = self._parse_chat_intent(command)
+            if status is None and progress is None:
+                print("❌ 我还没理解要把任务更新成什么状态。")
+                print("   可以这样说：小红书任务完成 / T003 进度 60% / 方案任务延期")
+                return
+
+            target, candidates = self._match_task_from_command(command, instruction)
+            if not target:
+                print("❌ 没有找到足够明确的任务。")
+                if candidates:
+                    print("   你可能想更新这些任务之一：")
+                    for item in candidates:
+                        print(f"   - [{item.id}] {item.title}（{item.status.value}，{item.progress}%）")
+                    print("   建议带上任务编号，例如：T001 完成")
+                return
+
+            if status == "进行中" and progress is not None:
+                progress = max(progress, target.progress)
+
+            updated = tracker.update_task(
+                task_id=target.id,
+                new_status=status,
+                new_progress=progress,
+                note=f"对话指令：{command}",
+            )
+            if not updated:
+                return
+
+            fresh = tracker.load_tasks()
+            if fresh:
+                table_path = LocalTableExporter().export(fresh)
+                dashboard_path = generate_dashboard(fresh)
+                print(f"✅ 已根据对话更新：[{updated.id}] {updated.title}")
+                print(f"   当前状态：{updated.status.value}，进度：{updated.progress}%")
+                print(f"   已刷新 Excel：{table_path}")
+                print(f"   已刷新看板：{dashboard_path}")
+
+        self._run_bg("对话执行", task)
 
     def run_all(self):
         if not (self._check_api_key() and self._check_workbook()):
