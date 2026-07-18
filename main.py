@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import config
 from models import StructuredInstruction, TaskStatus
 from boss_task_agent import (
-    ExcelReader, TaskParser, SOPGenerator,
+    InputReader, TaskParser, SOPGenerator,
     ProgressTracker, LocalTableExporter, RetrospectiveGenerator,
 )
 from dashboard_generator import generate_dashboard
@@ -37,7 +37,10 @@ def cmd_parse(args):
     print("📢 步骤 1: 读取老板语音摘要")
     print("=" * 60)
 
-    reader = ExcelReader(args.input if hasattr(args, 'input') and args.input else None)
+    reader = InputReader(
+        args.input if hasattr(args, 'input') and args.input else None,
+        speaker_role=getattr(args, "speaker_role", None),
+    )
     raw_text = reader.read()
     print(f"📄 读取到 {len(raw_text)} 字符的语音内容:\n")
     print(f"  {raw_text[:200]}{'...' if len(raw_text) > 200 else ''}\n")
@@ -47,11 +50,11 @@ def cmd_parse(args):
     print("=" * 60)
 
     parser = TaskParser()
-    instruction = parser.parse(raw_text)
+    instruction = parser.parse(raw_text, reader.segments)
 
     # 保存
     tracker = ProgressTracker()
-    tracker.save_tasks(instruction)
+    tracker.save_tasks(instruction, new_project=True)
 
     print(f"\n✅ 解析完成！项目: {instruction.overview.project_name}")
     print(f"   目标: {instruction.overview.objective}")
@@ -66,7 +69,7 @@ def cmd_parse(args):
             print(f"        交付物: {delivs}")
         print()
 
-    print(f"💾 结构化任务已保存: {config.TASKS_JSON}")
+    print(f"💾 结构化任务已保存: {config.DATABASE_PATH}")
     return instruction
 
 
@@ -262,7 +265,7 @@ def cmd_run_all(args):
 
     print("\n" + "═" * 60)
     print("🎉 全流程执行完成！")
-    print(f"   📄 结构化任务: {config.TASKS_JSON}")
+    print(f"   📄 任务数据库: {config.DATABASE_PATH}")
     print(f"   📑 SOP 模板:   {config.SOP_DIR}")
     print(f"   📊 Excel 表格: {config.LOCAL_TABLE_XLSX}")
     print(f"   🌐 进度看板:   {config.DASHBOARD_HTML}")
@@ -290,7 +293,8 @@ def main():
 
     # parse
     p_parse = subparsers.add_parser("parse", help="解析语音 → 结构化任务")
-    p_parse.add_argument("--input", "-i", help="指定输入 Excel 文件路径")
+    p_parse.add_argument("--input", "-i", help="指定输入文件路径（.xlsx/.mp3/.wav/.m4a）")
+    p_parse.add_argument("--speaker-role", default=config.DEFAULT_SPEAKER_ROLE, help="发言人职位，默认：老板")
     p_parse.set_defaults(func=cmd_parse)
 
     # sop
@@ -324,7 +328,8 @@ def main():
 
     # run-all
     p_all = subparsers.add_parser("run-all", help="一键全流程")
-    p_all.add_argument("--input", "-i", help="指定输入 Excel 文件路径")
+    p_all.add_argument("--input", "-i", help="指定输入文件路径（.xlsx/.mp3/.wav/.m4a）")
+    p_all.add_argument("--speaker-role", default=config.DEFAULT_SPEAKER_ROLE, help="发言人职位，默认：老板")
     p_all.set_defaults(func=cmd_run_all)
 
     args = parser.parse_args()

@@ -1,0 +1,3 @@
+# 可选：仅在需要直接导入 MP3/WAV/M4A 时安装。
+-r requirements.txt
+faster-whisper>=1.1.0,<2.0.0

@@ -25,6 +25,9 @@ ENV/
 # ── 项目产出（本地生成，不入库） ──
 input/*.xlsx
 input/*.xls
+input/*.mp3
+input/*.wav
+input/*.m4a
 output/
 sop_templates/*.md
 sop_templates/*.json
@@ -43,3 +46,7 @@ Thumbs.db
 .coverage
 htmlcov/
 .tox/
+
+# 本地同义词采样/临时输入
+input/_synonym_samples/
+

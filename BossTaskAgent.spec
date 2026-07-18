@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+from importlib.util import find_spec
 from PyInstaller.utils.hooks import collect_all
 
 datas = []
@@ -8,6 +9,12 @@ tmp_ret = collect_all('pydantic')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('pydantic_core')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('customtkinter')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+for optional_package in ('faster_whisper', 'ctranslate2', 'av'):
+    if find_spec(optional_package):
+        tmp_ret = collect_all(optional_package)
+        datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(

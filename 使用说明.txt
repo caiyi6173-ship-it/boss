@@ -32,12 +32,20 @@
 2. 文件名必须是 Workbook.xlsx
    （或在程序界面点击「浏览」选择其他 Excel 文件）
 
+方式 C：直接导入音频
+
+1. 点击程序界面的「浏览文件」
+2. 选择 MP3、WAV 或 M4A 文件
+3. 程序会先在本地使用 Whisper 转写，再继续解析任务
+4. 首次使用需要下载模型，耗时取决于网络速度
+
 
 【第三步：运行程序】
 
 1. 双击 BossTaskAgent.exe
 2. 程序窗口打开后：
-   - 点击「选择语音文件」可以选择不同的 Excel 文件
+   - 点击「浏览文件」可以选择 Excel、MP3、WAV 或 M4A 文件
+   - 在「每条信息前缀职位」填写老板、总经理或项目经理等职位
    - 点击「一键全流程」开始处理（约 10-30 秒）
    - 处理完成后会自动弹出看板网页
 3. 也可以单独执行某个步骤：
@@ -47,6 +55,10 @@
    - 「生成看板」：生成可视化 HTML 看板
    - 「生成复盘」：生成复盘报告
 
+   音频转写后，每条信息会自动带上分段 ID、职位、时间和来源文件。
+   AI 提取的任务、负责人、截止日期、交付物和依赖会引用这些分段，
+   可在 Excel 的「证据链」与「来源分段」工作表中查看原话和置信度。
+
 4. 对话式更新任务：
    在「对话执行」输入框中可以直接输入自然语言，例如：
    - 小红书任务完成
@@ -54,13 +66,30 @@
    - 方案任务延期
    - 拍摄任务卡住了
 
-   程序会在已解析的任务中自动匹配相关任务，更新状态和进度，
-   并刷新 output/task_table.xlsx 和 output/task_dashboard.html。
+   程序会用 LLM 结合当前任务清单理解你的口语意图，
+   匹配任务并更新状态/进度/负责人/截止日期；听不准时会在日志里反问。
+   成功后自动刷新 output/task_table.xlsx 和 output/task_dashboard.html。
+   也可以说更口语的句子，例如：
+   - 那个发抖音的先放一放
+   - 方案那块小李先别做了，等客户确认
+   - 拍摄进度大概七成
 
+
+【业务同义词词典（可选增强）】
+
+  项目目录下的 domain_glossary.json 可自定义口语同义词。
+  例如把「红薯」映射到「小红书」、「发抖音」映射到「抖音」。
+  修改后重新打开程序即可生效，对话更新和语音解析都会使用。
+
+  通用中文同义词库位于 resources/chinese_synonym.txt（chi-syn）。
+  程序启动时会 soft 合并到业务词，不会把整库塞进提示词。
+  如需把通用近义词候选写入业务词典，可运行：
+    python tools/import_chinese_synonyms.py
+    python tools/import_chinese_synonyms.py --write
 
 【输出文件说明】
 
-  output/structured_tasks.json   结构化任务数据
+  output/boss_tasks.db           SQLite 主数据库（任务与进度历史）
   output/task_table.xlsx         Excel 任务表格
   output/task_dashboard.html     可视化看板（浏览器打开）
   output/retrospective_report.md 复盘报告
@@ -72,6 +101,10 @@
 Q: 点击按钮后很久没反应？
 A: AI 分析需要 10-30 秒，请耐心等待日志区出现结果。
    如果超过 60 秒无反应，检查网络连接和 API Key 是否正确。
+
+Q: 提示「音频转写组件未安装」？
+A: 源码运行时执行 pip install -r requirements-audio.txt。
+   官方打包版已包含转写组件，但首次使用仍需下载 Whisper 模型。
 
 Q: 提示「API Key 未设置」？
 A: 请检查 .env 文件是否正确填写了密钥。

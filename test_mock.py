@@ -105,8 +105,8 @@ instruction = StructuredInstruction(
 
 # 保存任务
 tracker = ProgressTracker()
-tracker.save_tasks(instruction)
-print(f"✅ 模拟任务数据已保存: {config.TASKS_JSON}")
+tracker.save_tasks(instruction, new_project=True)
+print(f"✅ 模拟任务数据已保存: {config.DATABASE_PATH}")
 
 # 生成 Dashboard
 dashboard_path = generate_dashboard(instruction)
